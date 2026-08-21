@@ -44,7 +44,9 @@
           <span class="eyebrow">Workspace</span>
           <h2>Feature files</h2>
         </div>
-        <button class="round-button" type="button" data-action="workspace#newFile" aria-label="Create a new feature file" title="New feature file">+</button>
+        <button class="round-button" type="button" data-action="workspace#newFile" aria-label="Create a new feature file" title="New feature file">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
       </div>
 
       <div class="file-list" data-workspace-target="fileList">
@@ -153,7 +155,9 @@
           <span class="eyebrow">Chutney rule guide</span>
           <h2 id="rule-guide-title" data-workspace-target="docsTitle">Rule documentation</h2>
         </div>
-        <button type="button" class="docs-close" data-action="workspace#closeDocumentation" aria-label="Close rule documentation">×</button>
+        <button type="button" class="docs-close" data-action="workspace#closeDocumentation" aria-label="Close rule documentation">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
       </header>
       <div class="docs-content" data-workspace-target="docsContent">
         <div class="docs-loading">Loading rule guide…</div>

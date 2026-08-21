@@ -118,11 +118,69 @@ export default class extends Controller {
   handleKeydown(event) {
     if (event.key === "Tab") {
       event.preventDefault()
-      const input = this.editorTarget
-      const start = input.selectionStart
-      input.setRangeText("  ", start, input.selectionEnd, "end")
-      this.editorChanged()
+      this.changeIndent(event.shiftKey)
+    } else if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault()
+      this.insertIndentedNewline()
     }
+  }
+
+  insertIndentedNewline() {
+    const input = this.editorTarget
+    const start = input.selectionStart
+    const lineStart = input.value.lastIndexOf("\n", start - 1) + 1
+    const lineEnd = input.value.indexOf("\n", start)
+    const currentLine = input.value.slice(lineStart, lineEnd === -1 ? input.value.length : lineEnd)
+    const indentation = currentLine.match(/^[\t ]*/)[0]
+
+    input.setRangeText(`\n${indentation}`, start, input.selectionEnd, "end")
+    this.editorChanged()
+  }
+
+  changeIndent(outdent) {
+    const input = this.editorTarget
+    const start = input.selectionStart
+    const end = input.selectionEnd
+
+    if (!outdent && start === end) {
+      input.setRangeText("  ", start, end, "end")
+      this.editorChanged()
+      return
+    }
+
+    const value = input.value
+    const lineStart = value.lastIndexOf("\n", start - 1) + 1
+    const effectiveEnd = end > start && value[end - 1] === "\n" ? end - 1 : end
+    const followingNewline = value.indexOf("\n", effectiveEnd)
+    const lineEnd = followingNewline === -1 ? value.length : followingNewline
+    const lines = value.slice(lineStart, lineEnd).split("\n")
+    const deltas = []
+
+    const changedLines = lines.map((line) => {
+      if (!outdent) {
+        deltas.push(2)
+        return `  ${line}`
+      }
+
+      const indentation = line.match(/^(\t| {1,2})/)
+      const removed = indentation ? indentation[0].length : 0
+      deltas.push(-removed)
+      return line.slice(removed)
+    })
+
+    input.setRangeText(changedLines.join("\n"), lineStart, lineEnd, "start")
+
+    if (start === end) {
+      const column = start - lineStart
+      const newColumn = Math.max(0, column + deltas[0])
+      input.setSelectionRange(lineStart + newColumn, lineStart + newColumn)
+    } else {
+      const newStart = Math.max(lineStart, start + deltas[0])
+      const newEnd = end + deltas.reduce((total, delta) => total + delta, 0)
+      input.setSelectionRange(newStart, Math.max(newStart, newEnd))
+    }
+
+    this.editorChanged()
   }
 
   shortcut(event) {

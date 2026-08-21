@@ -57,4 +57,20 @@ class WorkspaceTest < ApplicationSystemTestCase
     assert_includes find("textarea[data-workspace-target='editor']").value, 'Feature: Uploaded checkout'
     assert_text 'loaded — save it to keep it here'
   end
+
+  test 'newlines preserve indentation while tab indents and shift tab outdents' do
+    visit root_path
+    editor = find("textarea[data-workspace-target='editor']")
+    editor.set("Feature: Editing\n  Scenario: keyboard flow\n    Given an existing step")
+
+    editor.send_keys(:enter, 'And another step')
+    assert_includes editor.value, "\n    And another step"
+
+    editor.send_keys(:enter, :tab, 'Then an over-indented step')
+    assert_includes editor.value, "\n      Then an over-indented step"
+
+    editor.send_keys([ :shift, :tab ])
+    assert_includes editor.value, "\n    Then an over-indented step"
+    refute_includes editor.value, "\n      Then an over-indented step"
+  end
 end
