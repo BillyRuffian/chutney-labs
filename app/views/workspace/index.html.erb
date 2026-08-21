@@ -1,0 +1,168 @@
+<% content_for :title, "Chutney Lab — Better Gherkin, instantly" %>
+
+<div class="app-shell"
+     data-controller="workspace"
+     data-workspace-lint-url-value="<%= lint_path %>"
+     data-workspace-create-url-value="<%= feature_files_path %>"
+     data-workspace-current-id-value="<%= @initial_file&.id %>">
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Chutney Lab home">
+      <span class="brand-mark" aria-hidden="true"><img src="/mr_pickle.png" alt="" width="42" height="43"></span>
+      <span class="brand-copy"><strong>chutney</strong><small>LAB</small></span>
+    </a>
+
+    <div class="topbar-center">
+      <span class="workspace-kicker">Playground</span>
+      <span class="topbar-divider"></span>
+      <label class="filename-label" for="feature-file-name">Filename</label>
+      <input id="feature-file-name"
+             class="filename-input"
+             value="<%= @initial_name %>"
+             maxlength="120"
+             data-workspace-target="filename"
+             data-action="input->workspace#markDirty blur->workspace#normalizeFilename"
+             aria-label="Feature filename">
+      <span class="dirty-dot" data-workspace-target="dirtyIndicator" title="Unsaved changes" hidden></span>
+    </div>
+
+    <nav class="topbar-actions" aria-label="Workspace actions">
+      <a href="https://www.usechutney.com/docs" class="nav-link" target="_blank" rel="noreferrer">Docs <span aria-hidden="true">↗</span></a>
+      <button class="button button-ghost button-icon" type="button" data-action="workspace#download" title="Download feature file" aria-label="Download feature file">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg>
+      </button>
+      <button class="button button-primary" type="button" data-action="workspace#save" data-workspace-target="saveButton">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5V4Zm3 0v6h8V4M8 20v-6h8v6"/></svg>
+        <span data-workspace-target="saveLabel">Save file</span>
+      </button>
+    </nav>
+  </header>
+
+  <main class="workspace">
+    <aside class="file-rail" aria-label="Feature files">
+      <div class="rail-heading">
+        <div>
+          <span class="eyebrow">Workspace</span>
+          <h2>Feature files</h2>
+        </div>
+        <button class="round-button" type="button" data-action="workspace#newFile" aria-label="Create a new feature file" title="New feature file">+</button>
+      </div>
+
+      <div class="file-list" data-workspace-target="fileList">
+        <% @feature_files.each do |feature_file| %>
+          <button class="file-item <%= "is-active" if feature_file == @initial_file %>"
+                  type="button"
+                  data-file-id="<%= feature_file.id %>"
+                  data-action="workspace#openFile">
+            <span class="file-icon" aria-hidden="true">F</span>
+            <span class="file-details">
+              <strong><%= feature_file.name %></strong>
+              <small>Saved <%= time_ago_in_words(feature_file.updated_at) %> ago</small>
+            </span>
+            <span class="file-chevron" aria-hidden="true">›</span>
+          </button>
+        <% end %>
+        <div class="empty-files" data-workspace-target="emptyState" <%= "hidden" if @feature_files.any? %>>
+          <span class="empty-files-icon" aria-hidden="true">✦</span>
+          <p>Your saved features will live here.</p>
+        </div>
+      </div>
+
+      <div class="rail-footer">
+        <input type="file" accept=".feature,text/plain" hidden data-workspace-target="fileInput" data-action="change->workspace#importFile">
+        <button class="import-button" type="button" data-action="workspace#chooseFile">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 20h14"/></svg>
+          Upload .feature
+        </button>
+        <p>Files stay in this Chutney workspace.</p>
+      </div>
+    </aside>
+
+    <section class="editor-column" aria-label="Gherkin editor">
+      <div class="panel-toolbar">
+        <div class="toolbar-title">
+          <span class="live-dot"></span>
+          <strong>Gherkin editor</strong>
+          <span class="language-chip">GHERKIN</span>
+        </div>
+        <div class="editor-meta">
+          <span data-workspace-target="lineCount">1 line</span>
+          <span class="meta-divider"></span>
+          <span>UTF-8</span>
+        </div>
+      </div>
+
+      <div class="editor-wrap">
+        <div class="line-numbers" aria-hidden="true"><div data-workspace-target="gutter"></div></div>
+        <div class="code-surface">
+          <pre class="syntax-layer" aria-hidden="true" data-workspace-target="highlight"></pre>
+          <textarea class="code-input"
+                    data-workspace-target="editor"
+                    data-action="input->workspace#editorChanged scroll->workspace#syncScroll keydown->workspace#handleKeydown"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    aria-label="Gherkin feature file editor"><%= @initial_content %></textarea>
+        </div>
+      </div>
+
+      <div class="editor-footer">
+        <span><kbd>⌘</kbd><kbd>S</kbd> to save</span>
+        <span><kbd>⌘</kbd><kbd>↵</kbd> to run Chutney</span>
+      </div>
+    </section>
+
+    <aside class="results-panel" aria-label="Chutney results">
+      <div class="panel-toolbar results-toolbar">
+        <div class="toolbar-title">
+          <span class="result-mark" data-workspace-target="resultMark">✓</span>
+          <strong>Chutney report</strong>
+        </div>
+        <span class="issue-count" data-workspace-target="issueCount">Ready</span>
+      </div>
+
+      <div class="report-summary" data-workspace-target="summary">
+        <div class="summary-orbit"><span>✓</span></div>
+        <div>
+          <span class="eyebrow">Ready to taste</span>
+          <h2>Run your first check</h2>
+          <p>Chutney will review the structure, clarity and maintainability of your Gherkin.</p>
+        </div>
+      </div>
+
+      <div class="issue-list" data-workspace-target="issueList" aria-live="polite"></div>
+
+      <div class="report-spacer"></div>
+      <div class="run-area">
+        <div class="run-meta">
+          <span data-workspace-target="lastRun">Not checked yet</span>
+          <span>Chutney <%= Chutney::VERSION %></span>
+        </div>
+        <button class="run-button" type="button" data-action="workspace#lint" data-workspace-target="runButton">
+          <span class="run-icon" aria-hidden="true">▶</span>
+          <span data-workspace-target="runLabel">Run Chutney</span>
+          <kbd>⌘ ↵</kbd>
+        </button>
+      </div>
+    </aside>
+  </main>
+
+  <div class="docs-overlay" data-workspace-target="docsOverlay" data-action="click->workspace#closeDocumentation" hidden>
+    <aside class="docs-drawer" role="dialog" aria-modal="true" aria-labelledby="rule-guide-title" data-action="click->workspace#keepDocumentationOpen">
+      <header class="docs-header">
+        <div>
+          <span class="eyebrow">Chutney rule guide</span>
+          <h2 id="rule-guide-title" data-workspace-target="docsTitle">Rule documentation</h2>
+        </div>
+        <button type="button" class="docs-close" data-action="workspace#closeDocumentation" aria-label="Close rule documentation">×</button>
+      </header>
+      <div class="docs-content" data-workspace-target="docsContent">
+        <div class="docs-loading">Loading rule guide…</div>
+      </div>
+      <footer class="docs-footer">
+        <a href="https://www.usechutney.com/docs/rules" target="_blank" rel="noreferrer" data-workspace-target="docsExternalLink">View on usechutney.com <span aria-hidden="true">↗</span></a>
+      </footer>
+    </aside>
+  </div>
+
+  <div class="toast" role="status" aria-live="polite" data-workspace-target="toast" hidden></div>
+</div>
