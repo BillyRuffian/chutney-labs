@@ -1,7 +1,6 @@
 Rails.application.routes.draw do
   root 'workspace#index'
 
-  resources :feature_files, only: %i[show create update destroy]
   post 'lint', to: 'lint#create', as: :lint
   get 'rules/:rule', to: 'rules#show', as: :rule_documentation
 

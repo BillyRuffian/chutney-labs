@@ -10,12 +10,5 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_21_000000) do
-  create_table "feature_files", force: :cascade do |t|
-    t.text "content", default: "", null: false
-    t.datetime "created_at", null: false
-    t.string "name", null: false
-    t.datetime "updated_at", null: false
-    t.index ["updated_at"], name: "index_feature_files_on_updated_at"
-  end
+ActiveRecord::Schema[8.1].define(version: 2026_08_21_000001) do
 end

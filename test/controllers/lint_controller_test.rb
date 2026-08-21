@@ -16,7 +16,7 @@ class LintControllerTest < ActionDispatch::IntegrationTest
   test 'rejects oversized input before linting' do
     post lint_path, params: {
       filename: 'huge.feature',
-      content: 'x' * (FeatureFile::MAX_FILE_SIZE + 1)
+      content: 'x' * (LintController::MAX_CONTENT_SIZE + 1)
     }, as: :json
 
     assert_response :content_too_large

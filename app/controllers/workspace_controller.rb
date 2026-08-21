@@ -12,9 +12,7 @@ class WorkspaceController < ApplicationController
   GHERKIN
 
   def index
-    @feature_files = FeatureFile.order(updated_at: :desc)
-    @initial_file = @feature_files.first
-    @initial_name = @initial_file&.name || 'sign_in.feature'
-    @initial_content = @initial_file&.content || EXAMPLE
+    @initial_name = 'sign_in.feature'
+    @initial_content = EXAMPLE
   end
 end

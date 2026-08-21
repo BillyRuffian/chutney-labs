@@ -2,9 +2,7 @@
 
 <div class="app-shell"
      data-controller="workspace"
-     data-workspace-lint-url-value="<%= lint_path %>"
-     data-workspace-create-url-value="<%= feature_files_path %>"
-     data-workspace-current-id-value="<%= @initial_file&.id %>">
+     data-workspace-lint-url-value="<%= lint_path %>">
   <header class="topbar">
     <a class="brand" href="/" aria-label="Chutney Lab home">
       <span class="brand-mark" aria-hidden="true"><img src="/mr_pickle.png" alt="" width="42" height="43"></span>
@@ -50,22 +48,9 @@
       </div>
 
       <div class="file-list" data-workspace-target="fileList">
-        <% @feature_files.each do |feature_file| %>
-          <button class="file-item <%= "is-active" if feature_file == @initial_file %>"
-                  type="button"
-                  data-file-id="<%= feature_file.id %>"
-                  data-action="workspace#openFile">
-            <span class="file-icon" aria-hidden="true">F</span>
-            <span class="file-details">
-              <strong><%= feature_file.name %></strong>
-              <small>Saved <%= time_ago_in_words(feature_file.updated_at) %> ago</small>
-            </span>
-            <span class="file-chevron" aria-hidden="true">›</span>
-          </button>
-        <% end %>
-        <div class="empty-files" data-workspace-target="emptyState" <%= "hidden" if @feature_files.any? %>>
+        <div class="empty-files" data-workspace-target="emptyState">
           <span class="empty-files-icon" aria-hidden="true">✦</span>
-          <p>Your saved features will live here.</p>
+          <p>Features saved in this browser will live here.</p>
         </div>
       </div>
 
@@ -75,7 +60,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 20h14"/></svg>
           Upload .feature
         </button>
-        <p>Files stay in this Chutney workspace.</p>
+        <p>Files are stored only in this browser.</p>
       </div>
     </aside>
 

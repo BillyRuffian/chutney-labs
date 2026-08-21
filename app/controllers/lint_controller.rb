@@ -1,5 +1,5 @@
 class LintController < ApplicationController
-  MAX_CONTENT_SIZE = FeatureFile::MAX_FILE_SIZE
+  MAX_CONTENT_SIZE = 250.kilobytes
 
   def create
     content = params[:content].to_s

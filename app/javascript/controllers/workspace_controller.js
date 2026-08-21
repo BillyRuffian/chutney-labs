@@ -1,5 +1,8 @@
 import { Controller } from "@hotwired/stimulus"
 
+const WORKSPACE_STORAGE_KEY = "chutney.workspace.v1"
+const MAX_FILE_SIZE = 250 * 1024
+
 export default class extends Controller {
   static targets = [
     "editor", "highlight", "gutter", "filename", "lineCount", "issueList", "issueCount",
@@ -9,16 +12,17 @@ export default class extends Controller {
   ]
 
   static values = {
-    lintUrl: String,
-    createUrl: String,
-    currentId: String
+    lintUrl: String
   }
 
   connect() {
     this.issues = []
+    this.files = []
+    this.currentId = null
     this.dirty = false
     this.lintTimer = null
     this.requestSequence = 0
+    this.restoreWorkspace()
     this.renderEditor()
     this.lint()
     this.boundShortcut = this.shortcut.bind(this)
@@ -357,56 +361,63 @@ export default class extends Controller {
     this.syncScroll()
   }
 
-  async save() {
+  save() {
     this.normalizeFilename()
-    this.saveButtonTarget.disabled = true
-    this.saveLabelTarget.textContent = "Saving…"
-    const persisted = Boolean(this.currentIdValue)
-    const url = persisted ? `${this.createUrlValue}/${this.currentIdValue}` : this.createUrlValue
+    const content = this.editorTarget.value
+    if (new Blob([content]).size > MAX_FILE_SIZE) {
+      this.showToast("Feature files must be smaller than 250 KB.", "error")
+      return
+    }
+
+    const id = this.currentId || this.generateId()
+    const file = {
+      id,
+      name: this.filenameTarget.value,
+      content,
+      updatedAt: new Date().toISOString()
+    }
+    const files = [file, ...this.files.filter((entry) => entry.id !== id)]
 
     try {
-      const response = await fetch(url, {
-        method: persisted ? "PATCH" : "POST",
-        headers: this.jsonHeaders(),
-        body: JSON.stringify({ feature_file: { name: this.filenameTarget.value, content: this.editorTarget.value } })
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error((data.errors || ["Could not save this file."]).join(" "))
-      this.currentIdValue = String(data.id)
+      this.persistWorkspace(files, id)
+      this.files = files
+      this.currentId = id
       this.markClean()
-      this.upsertFileItem(data)
-      this.showToast(`${data.name} saved`, "success")
+      this.renderFileList()
+      this.showToast(`${file.name} saved in this browser`, "success")
     } catch (error) {
-      this.showToast(error.message, "error")
+      this.showToast("This browser could not save the file. Check that local storage is available and has space.", "error")
       this.saveLabelTarget.textContent = "Save changes"
-    } finally {
-      this.saveButtonTarget.disabled = false
     }
   }
 
-  async openFile(event) {
+  openFile(event) {
     if (this.dirty && !window.confirm("Discard your unsaved changes and open this file?")) return
-    const item = event.currentTarget
-    try {
-      const response = await fetch(`${this.createUrlValue}/${item.dataset.fileId}`, { headers: { Accept: "application/json" } })
-      const data = await response.json()
-      if (!response.ok) throw new Error("Could not open that feature file.")
-      this.currentIdValue = String(data.id)
-      this.filenameTarget.value = data.name
-      this.editorTarget.value = data.content
-      this.issues = []
-      this.fileListTarget.querySelectorAll(".file-item").forEach((file) => file.classList.toggle("is-active", file === item))
-      this.markClean()
-      this.renderEditor()
-      this.lint()
-    } catch (error) {
-      this.showToast(error.message, "error")
+    const file = this.files.find((entry) => entry.id === event.currentTarget.dataset.fileId)
+    if (!file) {
+      this.showToast("Could not open that feature file from this browser.", "error")
+      return
     }
+
+    try {
+      this.persistWorkspace(this.files, file.id)
+    } catch (error) {
+      this.showToast("The file opened, but this browser could not remember it as the active file.", "error")
+    }
+
+    this.loadFile(file)
+    this.markClean()
+    this.renderEditor()
+    this.lint()
   }
 
   newFile() {
     if (this.dirty && !window.confirm("Discard your unsaved changes and create a new file?")) return
-    this.currentIdValue = ""
+    this.startNewFile()
+  }
+
+  startNewFile() {
+    this.currentId = null
     this.filenameTarget.value = "untitled.feature"
     this.editorTarget.value = "Feature: \n  As a\n  I want to\n  So that\n\n  Scenario: \n    Given \n    When \n    Then "
     this.issues = []
@@ -416,6 +427,43 @@ export default class extends Controller {
     this.editorTarget.focus()
     this.editorTarget.setSelectionRange(9, 9)
     this.lint()
+  }
+
+  deleteFile(event) {
+    event.stopPropagation()
+    const file = this.files.find((entry) => entry.id === event.currentTarget.dataset.fileId)
+    if (!file) {
+      this.showToast("Could not find that feature file in this browser.", "error")
+      return
+    }
+
+    const active = file.id === this.currentId
+    const unsavedWarning = active && this.dirty ? " Any unsaved changes will also be lost." : ""
+    if (!window.confirm(`Delete "${file.name}" from this browser? This cannot be undone.${unsavedWarning}`)) return
+
+    const files = this.files.filter((entry) => entry.id !== file.id)
+    const nextFile = active ? files[0] : this.files.find((entry) => entry.id === this.currentId)
+
+    try {
+      this.persistWorkspace(files, nextFile?.id || null)
+    } catch (error) {
+      this.showToast("This browser could not delete the file. Check that local storage is available.", "error")
+      return
+    }
+
+    this.files = files
+    if (active) {
+      if (nextFile) {
+        this.loadFile(nextFile)
+        this.renderEditor()
+        this.lint()
+      } else {
+        this.startNewFile()
+      }
+    }
+
+    this.renderFileList()
+    this.showToast(`${file.name} deleted from this browser`, "success")
   }
 
   chooseFile() {
@@ -430,7 +478,7 @@ export default class extends Controller {
       return
     }
     if (this.dirty && !window.confirm("Discard your unsaved changes and upload this file?")) return
-    this.currentIdValue = ""
+    this.currentId = null
     this.filenameTarget.value = file.name.toLowerCase().endsWith(".feature") ? file.name : `${file.name}.feature`
     this.editorTarget.value = await file.text()
     this.issues = []
@@ -438,7 +486,7 @@ export default class extends Controller {
     this.renderEditor()
     this.lint()
     this.fileInputTarget.value = ""
-    this.showToast(`${file.name} loaded — save it to keep it here`, "success")
+    this.showToast(`${file.name} loaded — save it in this browser to keep it`, "success")
   }
 
   download() {
@@ -451,21 +499,98 @@ export default class extends Controller {
     URL.revokeObjectURL(link.href)
   }
 
-  upsertFileItem(file) {
-    this.emptyStateTarget.hidden = true
-    let item = this.fileListTarget.querySelector(`[data-file-id="${file.id}"]`)
-    if (!item) {
-      item = document.createElement("button")
-      item.type = "button"
+  restoreWorkspace() {
+    let workspace
+    try {
+      workspace = this.readWorkspace()
+    } catch (error) {
+      this.showToast("Saved browser files could not be read. Local storage may be unavailable or damaged.", "error")
+      workspace = { files: [], activeFileId: null }
+    }
+
+    this.files = workspace.files
+    const activeFile = this.files.find((file) => file.id === workspace.activeFileId) || this.files[0]
+    if (activeFile) this.loadFile(activeFile)
+    this.renderFileList()
+  }
+
+  readWorkspace() {
+    const stored = localStorage.getItem(WORKSPACE_STORAGE_KEY)
+    if (!stored) return { files: [], activeFileId: null }
+
+    const workspace = JSON.parse(stored)
+    if (!workspace || !Array.isArray(workspace.files)) throw new Error("Invalid workspace")
+
+    const files = workspace.files.filter((file) => (
+      file &&
+      typeof file.id === "string" &&
+      typeof file.name === "string" &&
+      typeof file.content === "string" &&
+      typeof file.updatedAt === "string"
+    )).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+
+    return {
+      files,
+      activeFileId: typeof workspace.activeFileId === "string" ? workspace.activeFileId : null
+    }
+  }
+
+  persistWorkspace(files, activeFileId) {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify({ files, activeFileId }))
+  }
+
+  loadFile(file) {
+    this.currentId = file.id
+    this.filenameTarget.value = file.name
+    this.editorTarget.value = file.content
+    this.issues = []
+    this.dirty = false
+    this.dirtyIndicatorTarget.hidden = true
+    this.saveLabelTarget.textContent = "Save file"
+    this.fileListTarget.querySelectorAll(".file-item").forEach((item) => {
+      item.classList.toggle("is-active", item.dataset.fileId === file.id)
+    })
+  }
+
+  renderFileList() {
+    this.fileListTarget.querySelectorAll(".file-item").forEach((item) => item.remove())
+
+    this.files.forEach((file) => {
+      const item = document.createElement("div")
       item.className = "file-item"
       item.dataset.fileId = file.id
-      item.dataset.action = "workspace#openFile"
-      item.innerHTML = '<span class="file-icon" aria-hidden="true">F</span><span class="file-details"><strong></strong><small>Saved just now</small></span><span class="file-chevron" aria-hidden="true">›</span>'
-      this.fileListTarget.prepend(item)
-    }
-    item.querySelector("strong").textContent = file.name
-    item.querySelector("small").textContent = "Saved just now"
-    this.fileListTarget.querySelectorAll(".file-item").forEach((entry) => entry.classList.toggle("is-active", entry === item))
+      item.innerHTML = `
+        <button class="file-open" type="button" data-action="workspace#openFile">
+          <span class="file-icon" aria-hidden="true">F</span>
+          <span class="file-details"><strong></strong><small>Saved just now</small></span>
+          <span class="file-chevron" aria-hidden="true">›</span>
+        </button>
+        <button class="file-delete" type="button" data-action="workspace#deleteFile" title="Delete file">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg>
+        </button>
+      `
+      item.querySelector(".file-open").dataset.fileId = file.id
+      item.querySelector(".file-delete").dataset.fileId = file.id
+      item.querySelector(".file-delete").ariaLabel = `Delete ${file.name}`
+      item.querySelector("strong").textContent = file.name
+      item.querySelector("small").textContent = this.savedAtLabel(file.updatedAt)
+      item.classList.toggle("is-active", file.id === this.currentId)
+      this.fileListTarget.insertBefore(item, this.emptyStateTarget)
+    })
+
+    this.emptyStateTarget.hidden = this.files.length > 0
+  }
+
+  savedAtLabel(timestamp) {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(timestamp)) / 1000))
+    if (!Number.isFinite(elapsedSeconds) || elapsedSeconds < 60) return "Saved just now"
+    if (elapsedSeconds < 3600) return `Saved ${Math.floor(elapsedSeconds / 60)} min ago`
+    if (elapsedSeconds < 86400) return `Saved ${Math.floor(elapsedSeconds / 3600)} hr ago`
+    return `Saved ${Math.floor(elapsedSeconds / 86400)} days ago`
+  }
+
+  generateId() {
+    return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
   }
 
   jsonHeaders() {

@@ -11,5 +11,13 @@ class WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_select "[data-workspace-target='issueList']"
     assert_select "img[src='/mr_pickle.png'][width='42'][height='43']"
     assert_select "[data-workspace-target='docsOverlay'][hidden]"
+    assert_select '[data-workspace-create-url-value]', count: 0
+    assert_select '.rail-footer', text: /Files are stored only in this browser\./
+  end
+
+  test 'does not expose server-side feature file persistence routes' do
+    assert_raises(ActionController::RoutingError) do
+      Rails.application.routes.recognize_path('/feature_files', method: :post)
+    end
   end
 end
