@@ -30,6 +30,77 @@ class ChutneyAnalyserTest < ActiveSupport::TestCase
     assert_equal '/rules/MissingTestAction', issue[:documentation_url]
   end
 
+  test 'runs only the locally selected rules' do
+    content = <<~GHERKIN
+      Feature: Login
+        Scenario: logs in.
+          Given a user exists
+          Then they sign in
+    GHERKIN
+
+    disabled = ChutneyAnalyser.new(filename: 'login.feature', content:, enabled_rules: []).call
+    selected = ChutneyAnalyser.new(filename: 'login.feature', content:, enabled_rules: [ 'MissingTestAction', 'NotARealRule' ]).call
+
+    assert_empty disabled.issues
+    assert_equal [ 'MissingTestAction' ], selected.issues.map { it[:rule] }.uniq
+  end
+
+  test 'rule selections do not affect later validations' do
+    content = "Feature: Login\n  Scenario: logs in\n    Given a user exists\n    Then they sign in\n"
+
+    ChutneyAnalyser.new(filename: 'login.feature', content:, enabled_rules: []).call
+    result = ChutneyAnalyser.new(filename: 'login.feature', content:).call
+
+    assert result.issues.any? { it[:rule] == 'MissingTestAction' }
+  end
+
+  test 'applies list and numeric options to configurable rules' do
+    tagged_content = <<~GHERKIN
+      @OTHER-1
+      Feature: Login
+        A useful description
+        Scenario: logs in
+          Given a user exists
+          When they sign in
+          Then they see an account
+    GHERKIN
+    long_content = <<~GHERKIN
+      Feature: Login
+        A useful description
+        Scenario: logs in
+          Given a user exists
+          When they sign in
+          Then they see an account
+    GHERKIN
+
+    tags = ChutneyAnalyser.new(
+      filename: 'login.feature',
+      content: tagged_content,
+      enabled_rules: [ 'RequiredTagsStartsWith' ],
+      rule_options: { 'RequiredTagsStartsWith' => { 'Matcher' => [ 'JIRA' ] } }
+    ).call
+    steps = ChutneyAnalyser.new(
+      filename: 'login.feature',
+      content: long_content,
+      enabled_rules: [ 'TooManySteps' ],
+      rule_options: { 'TooManySteps' => { 'MaxCount' => 2 } }
+    ).call
+
+    assert_equal [ 'RequiredTagsStartsWith' ], tags.issues.map { it[:rule] }.uniq
+    assert_equal [ 'TooManySteps' ], steps.issues.map { it[:rule] }.uniq
+  end
+
+  test 'does not require tag prefixes when a feature has no tags' do
+    result = ChutneyAnalyser.new(
+      filename: 'sign_in.feature',
+      content: WorkspaceController::EXAMPLE,
+      enabled_rules: [ 'RequiredTagsStartsWith' ],
+      rule_options: { 'RequiredTagsStartsWith' => { 'Matcher' => [ 'JIRA' ] } }
+    ).call
+
+    assert_empty result.issues
+  end
+
   test 'turns parser failures into a line-specific syntax issue' do
     result = ChutneyAnalyser.new(filename: 'broken.feature', content: "Feature broken\n").call
 

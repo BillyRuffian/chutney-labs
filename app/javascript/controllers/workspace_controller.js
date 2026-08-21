@@ -1,6 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 const WORKSPACE_STORAGE_KEY = "chutney.workspace.v1"
+const RULE_SETTINGS_STORAGE_KEY = "chutney.rules.v1"
 const MAX_FILE_SIZE = 250 * 1024
 
 export default class extends Controller {
@@ -8,7 +9,8 @@ export default class extends Controller {
     "editor", "highlight", "gutter", "filename", "lineCount", "issueList", "issueCount",
     "summary", "lastRun", "runButton", "runLabel", "saveButton", "saveLabel", "fileInput",
     "fileList", "emptyState", "dirtyIndicator", "resultMark", "toast", "docsOverlay",
-    "docsTitle", "docsContent", "docsExternalLink"
+    "docsTitle", "docsContent", "docsExternalLink", "rulesOverlay", "rulesSearch",
+    "rulesCount", "rulesSummary", "ruleToggle", "ruleOption", "ruleGroup", "rulesEmpty"
   ]
 
   static values = {
@@ -23,6 +25,7 @@ export default class extends Controller {
     this.lintTimer = null
     this.requestSequence = 0
     this.restoreWorkspace()
+    this.restoreRuleSettings()
     this.renderEditor()
     this.lint()
     this.boundShortcut = this.shortcut.bind(this)
@@ -188,9 +191,15 @@ export default class extends Controller {
   }
 
   shortcut(event) {
-    if (event.key === "Escape" && !this.docsOverlayTarget.hidden) {
-      this.closeDocumentation()
-      return
+    if (event.key === "Escape") {
+      if (!this.docsOverlayTarget.hidden) {
+        this.closeDocumentation()
+        return
+      }
+      if (!this.rulesOverlayTarget.hidden) {
+        this.closeRuleSettings()
+        return
+      }
     }
     if (!(event.metaKey || event.ctrlKey)) return
     if (event.key.toLowerCase() === "s") {
@@ -212,7 +221,12 @@ export default class extends Controller {
       const response = await fetch(this.lintUrlValue, {
         method: "POST",
         headers: this.jsonHeaders(),
-        body: JSON.stringify({ content: this.editorTarget.value, filename: this.filenameTarget.value })
+        body: JSON.stringify({
+          content: this.editorTarget.value,
+          filename: this.filenameTarget.value,
+          rules: [...this.enabledRules],
+          rule_options: this.ruleOptions
+        })
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || "Chutney could not run.")
@@ -345,6 +359,182 @@ export default class extends Controller {
 
   keepDocumentationOpen(event) {
     event.stopPropagation()
+  }
+
+  openRuleSettings() {
+    this.rulesOverlayTarget.hidden = false
+    document.body.classList.add("drawer-open")
+    this.rulesSearchTarget.value = ""
+    this.filterRules()
+    this.rulesSearchTarget.focus()
+  }
+
+  closeRuleSettings(event) {
+    event?.stopPropagation()
+    this.rulesOverlayTarget.hidden = true
+    document.body.classList.remove("drawer-open")
+  }
+
+  keepRuleSettingsOpen(event) {
+    event.stopPropagation()
+  }
+
+  openRuleGuideFromSettings(event) {
+    this.closeRuleSettings()
+    this.openDocumentation(event.currentTarget.dataset.documentationUrl)
+  }
+
+  restoreRuleSettings() {
+    this.availableRules = this.ruleToggleTargets.map((toggle) => toggle.value)
+    this.defaultEnabledRules = this.ruleToggleTargets.filter((toggle) => toggle.dataset.defaultEnabled === "true").map((toggle) => toggle.value)
+    this.defaultRuleOptions = this.readRuleOptionsFromControls(true)
+
+    try {
+      const stored = localStorage.getItem(RULE_SETTINGS_STORAGE_KEY)
+      if (!stored) {
+        this.enabledRules = new Set(this.defaultEnabledRules)
+        this.ruleOptions = structuredClone(this.defaultRuleOptions)
+      } else {
+        const settings = JSON.parse(stored)
+        if (!settings || !Array.isArray(settings.enabledRules)) throw new Error("Invalid rule settings")
+        this.enabledRules = new Set(settings.enabledRules.filter((rule) => this.availableRules.includes(rule)))
+        this.ruleOptions = this.normalizeRuleOptions(settings.ruleOptions)
+      }
+    } catch (error) {
+      this.enabledRules = new Set(this.defaultEnabledRules)
+      this.ruleOptions = structuredClone(this.defaultRuleOptions)
+      this.showToast("Local rule settings could not be read, so Chutney defaults are active.", "error")
+    }
+
+    this.syncRuleSettings()
+  }
+
+  ruleSettingChanged(event) {
+    const enabledRules = new Set(this.enabledRules)
+    if (event.currentTarget.checked) {
+      enabledRules.add(event.currentTarget.value)
+    } else {
+      enabledRules.delete(event.currentTarget.value)
+    }
+    this.updateRuleSettings(enabledRules, event.currentTarget)
+  }
+
+  enableAllRules() {
+    this.updateRuleSettings(new Set(this.availableRules))
+  }
+
+  restoreDefaultRules() {
+    this.updateRuleSettings(new Set(this.defaultEnabledRules), null, structuredClone(this.defaultRuleOptions))
+  }
+
+  ruleOptionChanged(event) {
+    const ruleOptions = structuredClone(this.ruleOptions)
+    const input = event.currentTarget
+    ruleOptions[input.dataset.ruleName] ||= {}
+    ruleOptions[input.dataset.ruleName][input.dataset.optionKey] = this.ruleOptionValue(input)
+    this.updateRuleSettings(this.enabledRules, null, ruleOptions)
+  }
+
+  updateRuleSettings(enabledRules, changedToggle = null, ruleOptions = this.ruleOptions) {
+    try {
+      localStorage.setItem(RULE_SETTINGS_STORAGE_KEY, JSON.stringify({ enabledRules: [...enabledRules], ruleOptions }))
+    } catch (error) {
+      if (changedToggle) changedToggle.checked = !changedToggle.checked
+      this.syncRuleSettings()
+      this.showToast("This browser could not save your rule settings.", "error")
+      return
+    }
+
+    this.enabledRules = enabledRules
+    this.ruleOptions = ruleOptions
+    this.syncRuleSettings()
+    this.lint()
+  }
+
+  syncRuleSettings() {
+    this.ruleToggleTargets.forEach((toggle) => {
+      toggle.checked = this.enabledRules.has(toggle.value)
+      toggle.closest(".rule-option").classList.toggle("is-enabled", toggle.checked)
+    })
+    this.ruleOptionTargets.forEach((input) => {
+      const value = this.ruleOptions[input.dataset.ruleName]?.[input.dataset.optionKey]
+      input.value = this.formatRuleOptionValue(input.dataset.optionType, value)
+      input.disabled = !this.enabledRules.has(input.dataset.ruleName)
+    })
+    this.rulesCountTargets.forEach((count) => {
+      count.textContent = `${this.enabledRules.size}/${this.availableRules.length}`
+    })
+    this.rulesSummaryTarget.textContent = `${this.enabledRules.size} of ${this.availableRules.length} optional checks enabled`
+  }
+
+  normalizeRuleOptions(storedOptions) {
+    const source = storedOptions && typeof storedOptions === "object" ? storedOptions : {}
+    const options = structuredClone(this.defaultRuleOptions)
+    this.ruleOptionTargets.forEach((input) => {
+      const stored = source[input.dataset.ruleName]?.[input.dataset.optionKey]
+      if (stored === undefined) return
+
+      const temporary = document.createElement(input.tagName)
+      temporary.dataset.optionType = input.dataset.optionType
+      temporary.min = input.min
+      temporary.max = input.max
+      temporary.value = this.formatRuleOptionValue(input.dataset.optionType, stored)
+      options[input.dataset.ruleName][input.dataset.optionKey] = this.ruleOptionValue(temporary)
+    })
+    return options
+  }
+
+  readRuleOptionsFromControls(useDefaults = false) {
+    return this.ruleOptionTargets.reduce((options, input) => {
+      options[input.dataset.ruleName] ||= {}
+      const value = useDefaults ? input.dataset.defaultValue : input.value
+      const original = input.value
+      input.value = value
+      options[input.dataset.ruleName][input.dataset.optionKey] = this.ruleOptionValue(input)
+      input.value = original
+      return options
+    }, {})
+  }
+
+  ruleOptionValue(input) {
+    switch (input.dataset.optionType) {
+      case "integer": {
+        const minimum = Number.parseInt(input.min, 10)
+        const maximum = Number.parseInt(input.max, 10)
+        const value = Number.parseInt(input.value, 10)
+        if (!Number.isFinite(value)) return minimum
+        return Math.min(maximum, Math.max(minimum, value))
+      }
+      case "list":
+        return [...new Set(input.value.split(/[\n,]/).map((value) => value.trim().replace(/^@/, "")).filter(Boolean))].slice(0, 50)
+      case "groups":
+        return input.value.split("\n").map((line) => [...new Set(line.split(",").map((value) => value.trim().replace(/^@/, "")).filter(Boolean))].slice(0, 20)).filter((group) => group.length >= 2).slice(0, 20)
+      default:
+        return input.value.trim().slice(0, 200)
+    }
+  }
+
+  formatRuleOptionValue(type, value) {
+    if (type === "list") return Array.isArray(value) ? value.join(", ") : ""
+    if (type === "groups") return Array.isArray(value) ? value.map((group) => Array.isArray(group) ? group.join(", ") : "").filter(Boolean).join("\n") : ""
+    return value ?? ""
+  }
+
+  filterRules() {
+    const query = this.rulesSearchTarget.value.trim().toLowerCase()
+    let visibleCount = 0
+
+    this.ruleGroupTargets.forEach((group) => {
+      const options = [...group.querySelectorAll(".rule-option")]
+      options.forEach((option) => {
+        const visible = option.dataset.ruleSearch.includes(query)
+        option.classList.toggle("is-hidden", !visible)
+        if (visible) visibleCount += 1
+      })
+      group.hidden = options.every((option) => option.classList.contains("is-hidden"))
+    })
+
+    this.rulesEmptyTarget.hidden = visibleCount > 0
   }
 
   humanize(value) {

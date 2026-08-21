@@ -14,5 +14,6 @@ class WorkspaceController < ApplicationController
   def index
     @initial_name = 'sign_in.feature'
     @initial_content = EXAMPLE
+    @rule_groups = ChutneyRuleCatalog.rules.group_by(&:category)
   end
 end

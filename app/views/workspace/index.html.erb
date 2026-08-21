@@ -24,6 +24,11 @@
     </div>
 
     <nav class="topbar-actions" aria-label="Workspace actions">
+      <button class="button rules-trigger" type="button" data-action="workspace#openRuleSettings" aria-haspopup="dialog" aria-controls="rule-settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6"/></svg>
+        <span class="rules-trigger-label">Rules</span>
+        <span class="rules-trigger-count" data-workspace-target="rulesCount"><%= ChutneyRuleCatalog.default_enabled_names.size %>/<%= ChutneyRuleCatalog.names.size %></span>
+      </button>
       <a href="https://www.usechutney.com/docs" class="nav-link" target="_blank" rel="noreferrer">Docs <span aria-hidden="true">↗</span></a>
       <button class="button button-ghost button-icon" type="button" data-action="workspace#download" title="Download feature file" aria-label="Download feature file">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg>
@@ -132,6 +137,116 @@
       </div>
     </aside>
   </main>
+
+  <div class="rules-overlay" data-workspace-target="rulesOverlay" data-action="click->workspace#closeRuleSettings" hidden>
+    <aside id="rule-settings" class="rules-drawer" role="dialog" aria-modal="true" aria-labelledby="rule-settings-title" data-action="click->workspace#keepRuleSettingsOpen">
+      <header class="rules-header">
+        <div>
+          <span class="eyebrow">Local preferences</span>
+          <h2 id="rule-settings-title">Season your checks</h2>
+          <p>Choose which Chutney rules run for this browser.</p>
+        </div>
+        <button type="button" class="docs-close" data-action="workspace#closeRuleSettings" aria-label="Close rule settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+
+      <div class="rules-controls">
+        <label class="rules-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+          <span class="visually-hidden">Search linting rules</span>
+          <input type="search" placeholder="Find a rule…" autocomplete="off" data-workspace-target="rulesSearch" data-action="input->workspace#filterRules">
+        </label>
+        <button type="button" data-action="workspace#enableAllRules">Enable all</button>
+        <button type="button" data-action="workspace#restoreDefaultRules">Restore defaults</button>
+      </div>
+
+      <div class="rules-content">
+        <div class="syntax-rule-note">
+          <span class="syntax-lock" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          </span>
+          <div><strong>Gherkin syntax</strong><p>Parsing and syntax safety are always on.</p></div>
+          <span class="always-on-chip">Always on</span>
+        </div>
+
+        <% @rule_groups.each do |category, rules| %>
+          <section class="rule-group" data-workspace-target="ruleGroup">
+            <header><h3><%= category %></h3><span><%= rules.size %> rules</span></header>
+            <div class="rule-options">
+              <% rules.each do |rule| %>
+                <article class="rule-option <%= "is-enabled" if rule.enabled_by_default %>" data-rule-name="<%= rule.name %>" data-rule-search="<%= "#{rule.title} #{rule.summary} #{category}".downcase %>">
+                  <label class="rule-toggle-label">
+                    <input type="checkbox"
+                           value="<%= rule.name %>"
+                           <%= "checked" if rule.enabled_by_default %>
+                           data-default-enabled="<%= rule.enabled_by_default %>"
+                           data-workspace-target="ruleToggle"
+                           data-action="change->workspace#ruleSettingChanged">
+                    <span class="rule-switch" aria-hidden="true"><span></span></span>
+                    <span class="rule-copy">
+                      <strong><%= rule.title %></strong>
+                      <small><%= rule.summary %></small>
+                    </span>
+                  </label>
+                  <% if rule.documentation_url %>
+                    <button class="rule-guide-button" type="button" data-action="workspace#openRuleGuideFromSettings" data-documentation-url="<%= rule.documentation_url %>" aria-label="Read <%= rule.title %> guide">Guide <span aria-hidden="true">↗</span></button>
+                  <% end %>
+                  <% if rule.settings.any? %>
+                    <div class="rule-configuration">
+                      <% rule.settings.each do |setting| %>
+                        <% input_id = "rule-option-#{rule.name}-#{setting.key}" %>
+                        <label class="rule-field" for="<%= input_id %>">
+                          <span><%= setting.label %></span>
+                          <% if setting.type == :groups %>
+                            <textarea id="<%= input_id %>"
+                                      rows="2"
+                                      placeholder="<%= setting.placeholder %>"
+                                      <%= "disabled" unless rule.enabled_by_default %>
+                                      data-rule-name="<%= rule.name %>"
+                                      data-option-key="<%= setting.key %>"
+                                      data-option-type="<%= setting.type %>"
+                                      data-default-value="<%= setting.input_value %>"
+                                      data-workspace-target="ruleOption"
+                                      data-action="change->workspace#ruleOptionChanged"><%= setting.input_value %></textarea>
+                          <% else %>
+                            <input id="<%= input_id %>"
+                                   type="<%= setting.type == :integer ? "number" : "text" %>"
+                                   value="<%= setting.input_value %>"
+                                   placeholder="<%= setting.placeholder %>"
+                                   <% if setting.type == :integer %>
+                                     min="<%= setting.min %>"
+                                     max="<%= setting.max %>"
+                                   <% end %>
+                                   <%= "disabled" unless rule.enabled_by_default %>
+                                   autocomplete="off"
+                                   spellcheck="false"
+                                   data-rule-name="<%= rule.name %>"
+                                   data-option-key="<%= setting.key %>"
+                                   data-option-type="<%= setting.type %>"
+                                   data-default-value="<%= setting.input_value %>"
+                                   data-workspace-target="ruleOption"
+                                   data-action="change->workspace#ruleOptionChanged">
+                          <% end %>
+                          <small><%= setting.help %></small>
+                        </label>
+                      <% end %>
+                    </div>
+                  <% end %>
+                </article>
+              <% end %>
+            </div>
+          </section>
+        <% end %>
+        <div class="rules-empty" data-workspace-target="rulesEmpty" hidden>No rules match that search.</div>
+      </div>
+
+      <footer class="rules-footer">
+        <div><strong data-workspace-target="rulesSummary"><%= ChutneyRuleCatalog.default_enabled_names.size %> of <%= ChutneyRuleCatalog.names.size %> optional checks enabled</strong><small>Stored only in this browser</small></div>
+        <button class="button button-primary" type="button" data-action="workspace#closeRuleSettings">Done</button>
+      </footer>
+    </aside>
+  </div>
 
   <div class="docs-overlay" data-workspace-target="docsOverlay" data-action="click->workspace#closeDocumentation" hidden>
     <aside class="docs-drawer" role="dialog" aria-modal="true" aria-labelledby="rule-guide-title" data-action="click->workspace#keepDocumentationOpen">

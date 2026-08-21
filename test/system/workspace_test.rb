@@ -117,4 +117,80 @@ class WorkspaceTest < ApplicationSystemTestCase
     assert_includes editor.value, "\n    Then an over-indented step"
     refute_includes editor.value, "\n      Then an over-indented step"
   end
+
+  test 'rule preferences are searchable, affect linting and persist locally' do
+    editor = find("textarea[data-workspace-target='editor']")
+    content = "Feature: Login\n  Scenario: login\n    Given a user exists\n    Then success\n"
+    editor.set(content)
+    click_button 'Run Chutney'
+    assert_text 'Missing Test Action'
+
+    click_button 'Rules'
+    assert_selector '.rules-drawer', text: 'Season your checks'
+    assert_text '40/44'
+
+    within('.rules-drawer') do
+      fill_in 'Search linting rules', with: 'missing test action'
+      assert_selector '.rule-option:not(.is-hidden)', count: 1
+      find('.rule-option', text: 'Missing Test Action').find('.rule-switch').click
+      click_button 'Done'
+    end
+
+    assert_no_text 'Missing Test Action'
+    settings = page.evaluate_script("JSON.parse(localStorage.getItem('chutney.rules.v1'))")
+    assert_not_includes settings['enabledRules'], 'MissingTestAction'
+
+    visit root_path
+    click_button 'Rules'
+    toggle = find("input[value='MissingTestAction']", visible: :all)
+    assert_not toggle.checked?
+    click_button 'Done'
+
+    editor = find("textarea[data-workspace-target='editor']")
+    editor.set(content)
+    click_button 'Run Chutney'
+    assert_no_text 'Missing Test Action'
+
+    click_button 'Rules'
+    within('.rules-drawer') { click_button 'Restore defaults' }
+    click_button 'Done'
+    assert_text 'Missing Test Action'
+  end
+
+  test 'configurable rule details persist and affect linting' do
+    click_button 'Rules'
+    within('.rules-drawer') do
+      fill_in 'Search linting rules', with: 'required tags starts with'
+      option = find('.rule-option', text: 'Required Tags Starts With')
+      option.find('.rule-switch').click
+      fill_in 'Allowed tag prefixes', with: 'JIRA, PROJECT'
+      click_button 'Done'
+    end
+
+    click_button 'Run Chutney'
+    assert_no_text 'Required Tags Starts With'
+
+    editor = find("textarea[data-workspace-target='editor']")
+    editor.set(<<~GHERKIN)
+      @OTHER-1
+      Feature: Login
+        A useful description
+        Scenario: login
+          Given a user exists
+          When they sign in
+          Then they see an account
+    GHERKIN
+    click_button 'Run Chutney'
+    assert_text 'Required Tags Starts With'
+
+    settings = page.evaluate_script("JSON.parse(localStorage.getItem('chutney.rules.v1'))")
+    assert_equal [ 'JIRA', 'PROJECT' ], settings.dig('ruleOptions', 'RequiredTagsStartsWith', 'Matcher')
+
+    visit root_path
+    click_button 'Rules'
+    within('.rules-drawer') do
+      fill_in 'Search linting rules', with: 'required tags starts with'
+      assert_field 'Allowed tag prefixes', with: 'JIRA, PROJECT'
+    end
+  end
 end

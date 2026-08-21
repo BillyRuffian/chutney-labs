@@ -19,9 +19,11 @@ class ChutneyAnalyser
     '#EOF' => 'the end of the file'
   }.freeze
 
-  def initialize(content:, filename:)
+  def initialize(content:, filename:, enabled_rules: nil, rule_options: {})
     @content = content.to_s
     @filename = safe_filename(filename)
+    @enabled_rules = enabled_rules&.intersection(ChutneyRuleCatalog.names)
+    @rule_options = rule_options.slice(*ChutneyRuleCatalog.names)
   end
 
   def call
@@ -62,6 +64,7 @@ class ChutneyAnalyser
       begin
         linter = Chutney::ChutneyLint.new(path)
         linter.configuration.quiet!
+        apply_rule_selection(linter.configuration) if @enabled_rules
         flatten(linter.analyse.fetch(path, []))
       ensure
         reset_global_linter_state
@@ -72,6 +75,27 @@ class ChutneyAnalyser
   def reset_global_linter_state
     Chutney::SameScenario.reset
     Chutney::SameTagDifferentCase.class_variable_set(:@@all_known_tags, [])
+  end
+
+  def apply_rule_selection(configuration)
+    ChutneyRuleCatalog.names.each do |rule|
+      configuration[rule] ||= {}
+      configuration[rule]['Enabled'] = rule_enabled?(rule)
+      @rule_options.fetch(rule, {}).each do |key, value|
+        configuration[rule][key] = value
+      end
+    end
+  end
+
+  def rule_enabled?(rule)
+    return false unless @enabled_rules.include?(rule)
+    return feature_contains_tags? if rule == 'RequiredTagsStartsWith'
+
+    true
+  end
+
+  def feature_contains_tags?
+    @feature_contains_tags ||= @content.match?(/^\s*@\S+/)
   end
 
   def flatten(groups)

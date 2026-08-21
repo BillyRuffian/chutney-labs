@@ -7,7 +7,18 @@ class LintController < ApplicationController
       return render json: { error: 'Feature files must be smaller than 250 KB.' }, status: :content_too_large
     end
 
-    result = ChutneyAnalyser.new(content:, filename: params[:filename]).call
+    enabled_rules = Array(params[:rules]).map(&:to_s) if params.key?(:rules)
+    normalization = ChutneyRuleCatalog.normalize_options(params[:rule_options])
+    if normalization.errors.any?
+      return render json: { error: normalization.errors.to_sentence }, status: :unprocessable_content
+    end
+
+    result = ChutneyAnalyser.new(
+      content:,
+      filename: params[:filename],
+      enabled_rules:,
+      rule_options: normalization.options
+    ).call
     render json: {
       issues: result.issues,
       valid: result.issues.empty?,
